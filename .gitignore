@@ -33,3 +33,9 @@ ckpts*
 
 # Demo
 serve_images/
+
+/jobs
+/logs
+/save
+/ngc*/
+/venv/
