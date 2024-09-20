@@ -30,11 +30,70 @@ class SimpleResBlock(nn.Module):
         return x + self.proj(x)
 
 
+class SDCLIPBlock(nn.Module):
+    def __init__(self, in_channels, out_channels,
+                 select_layer=1, clip_proj_in=1024, clip_proj_out=768, concat_clip=False, pe=-1):
+        super().__init__()
+        self.clip_projector = nn.Sequential(
+            nn.Linear(clip_proj_in, clip_proj_out),
+            nn.GELU(),
+            nn.Linear(clip_proj_out, clip_proj_out),
+        )
+        self.concat_clip = concat_clip
+        self.sd_norm_layer = nn.LayerNorm(in_channels[select_layer])
+        self.clip_norm_layer = nn.LayerNorm(clip_proj_in)
+        self.select_layer = select_layer
+        linear_in = in_channels[select_layer]
+        if concat_clip:
+            linear_in += clip_proj_in
+        self.linear = nn.Sequential(
+            nn.Linear(linear_in, out_channels),
+            nn.GELU(),
+            nn.Linear(out_channels, out_channels),
+        )
+        if pe > 0:
+            self.add_pe = True
+            self.vt_pe = nn.Parameter(torch.randn(pe, out_channels) * 0.02)
+        else:
+            self.add_pe = False
+
+    def forward(self, x):
+        # SD feature
+        y = x[self.select_layer]
+        y = y.permute(0, 2, 3, 1)
+        y = self.sd_norm_layer(y)
+        y = y.permute(0, 3, 1, 2)
+
+        if self.concat_clip:
+            # CLIP feature
+            z = x[-1]
+            z = z.permute(0, 2, 3, 1)
+            z = self.clip_norm_layer(z)
+            z = z.permute(0, 3, 1, 2)
+            y = torch.cat([y, z], dim=1)
+
+        b, c, h, w = y.shape
+        y = y.view(b, c, h * w).permute(0, 2, 1)
+        y = self.linear(y)
+        if self.add_pe:
+            y = y + self.vt_pe
+        return y
+
+
 def build_vision_projector(config, delay_load=False, **kwargs):
     projector_type = getattr(config, 'mm_projector_type', 'linear')
 
     if projector_type == 'linear':
         return nn.Linear(config.mm_hidden_size, config.hidden_size)
+
+    if projector_type == 'SDCLIPBlock':
+        return SDCLIPBlock(config.mm_hidden_size, config.hidden_size,
+                           select_layer=config.mm_vision_select_layer,
+                           clip_proj_in=config.mm_vision_sd_clip_proj_in,
+                           clip_proj_out=config.mm_vision_sd_clip_proj_out,
+                           concat_clip=config.mm_vision_sd_concat_clip,
+                           pe=config.mm_vision_sd_pe,
+                           **kwargs)
 
     mlp_gelu_match = re.match(r'^mlp(\d+)x_gelu$', projector_type)
     if mlp_gelu_match:

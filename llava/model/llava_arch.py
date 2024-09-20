@@ -78,6 +78,16 @@ class LlavaMetaModel:
         self.config.mm_vision_select_layer = mm_vision_select_layer
         self.config.mm_vision_select_feature = mm_vision_select_feature
         self.config.mm_patch_merge_type = mm_patch_merge_type
+        self.config.mm_vision_sd_timestep = getattr(model_args, 'mm_vision_sd_timestep', None)
+        self.config.mm_vision_sd_ensemble_size = getattr(model_args, 'mm_vision_sd_ensemble_size', None)
+        self.config.mm_vision_sd_clip = getattr(model_args, 'mm_vision_sd_clip', None)
+        self.config.mm_vision_sd_clip_proj_in = getattr(model_args, 'mm_vision_sd_clip_proj_in', None)
+        self.config.mm_vision_sd_clip_proj_out = getattr(model_args, 'mm_vision_sd_clip_proj_out', None)
+        self.config.mm_vision_sd_concat_clip = getattr(model_args, 'mm_vision_sd_concat_clip', None)
+        self.config.mm_vision_sd_implicit_caption = getattr(model_args, 'mm_vision_sd_implicit_caption', None)
+        self.config.mm_vision_sd_pe = getattr(model_args, 'mm_vision_sd_pe', None)
+        if self.config.mm_vision_sd_clip is not None:
+            self.config.mm_hidden_size = vision_tower.hidden_size
 
         if getattr(self, 'mm_projector', None) is None:
             self.mm_projector = build_vision_projector(self.config)
@@ -87,6 +97,8 @@ class LlavaMetaModel:
                 self.image_newline = nn.Parameter(
                     torch.randn(self.config.hidden_size, dtype=self.dtype) * embed_std
                 )
+            if getattr(model_args, 'mm_vision_sd_clip', None):
+                self.vision_tower.vision_tower.clip_projector = self.mm_projector.clip_projector
         else:
             # In case it is frozen by LoRA
             for p in self.mm_projector.parameters():

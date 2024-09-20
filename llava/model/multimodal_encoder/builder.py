@@ -4,6 +4,7 @@ from .convnext_clip_encoder import ConvNeXtCLIPVisionTower
 from .siglip_encoder import SigLIPVisionTower
 from .dinov2_encoder import DINOv2VisionTower
 from .timm_siglip_encoder import TimmSigLIPVisionTower
+from .sd_encoder import SDCLIPVisionTower
 
 
 def build_vision_tower(vision_tower_cfg, **kwargs):
@@ -28,5 +29,7 @@ def build_vision_tower(vision_tower_cfg, **kwargs):
     # DINOv2 (timm implementation)
     elif vision_tower.startswith('timm') and 'dinov2' in vision_tower:
         return DINOv2VisionTower(vision_tower, args=vision_tower_cfg, **kwargs)
+    elif vision_tower.startswith("stabilityai") or vision_tower.startswith("runwayml") or vision_tower.startswith("stable-diffusion"):
+        return SDCLIPVisionTower(vision_tower, args=vision_tower_cfg, **kwargs)
     else:
         raise ValueError(f'Unknown vision tower: {vision_tower}')

@@ -65,6 +65,14 @@ class ModelArguments:
     mm_patch_merge_type: Optional[str] = field(default='flat')
     mm_vision_select_feature: Optional[str] = field(default="patch")
     mm_vision_resolution: Optional[int] = field(default=336)
+    mm_vision_sd_timestep: int = field(default=100)
+    mm_vision_sd_ensemble_size: int = field(default=1)
+    mm_vision_sd_clip: Optional[str] = field(default=None)
+    mm_vision_sd_clip_proj_in: int = field(default=1024)
+    mm_vision_sd_clip_proj_out: int = field(default=768)
+    mm_vision_sd_concat_clip: bool = field(default=False)
+    mm_vision_sd_implicit_caption: bool = field(default=False)
+    mm_vision_sd_pe: int = field(default=-1)
     mm_hidden_size: Optional[int] = field(default=1024)
 
 
