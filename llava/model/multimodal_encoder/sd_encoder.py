@@ -223,7 +223,7 @@ class SDCLIPFeaturizer:
         self.null_prompt = null_prompt
         self.pipe = onestep_pipe
 
-        # self.clip_projector is created in mm_projector later
+        # self.clip_projector and self.clip_pe is created in mm_projector later
         self.implicit_caption = implicit_caption
         self.add_pe = (pe > 0)
 
@@ -267,6 +267,8 @@ class SDCLIPFeaturizer:
         clip_features = clip_features.hidden_states[-2][:, 1:]
         proj_clip_features = self.clip_projector(clip_features)                 # bs, h * w, c
         proj_clip_features = proj_clip_features.repeat(ensemble_size, 1, 1)     # ensem * bs, h * w, c
+        if self.add_pe:
+            proj_clip_features = proj_clip_features + self.clip_pe
         if self.implicit_caption:
             prompt_embeds = proj_clip_features + self.null_prompt_embeds.mean(1, keepdim=True)
         else:

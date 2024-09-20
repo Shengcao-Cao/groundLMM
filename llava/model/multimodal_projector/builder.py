@@ -53,7 +53,8 @@ class SDCLIPBlock(nn.Module):
         )
         if pe > 0:
             self.add_pe = True
-            self.vt_pe = nn.Parameter(torch.randn(pe, out_channels) * 0.02)
+            self.clip_pe = nn.Parameter(torch.randn(pe, clip_proj_out) * 0.02)
+            self.vt_pe = nn.Parameter(torch.randn(pe, linear_in) * 0.02)
         else:
             self.add_pe = False
 
@@ -74,9 +75,9 @@ class SDCLIPBlock(nn.Module):
 
         b, c, h, w = y.shape
         y = y.view(b, c, h * w).permute(0, 2, 1)
-        y = self.linear(y)
         if self.add_pe:
             y = y + self.vt_pe
+        y = self.linear(y)
         return y
 
 

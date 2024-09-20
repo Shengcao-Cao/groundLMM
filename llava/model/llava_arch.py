@@ -99,6 +99,8 @@ class LlavaMetaModel:
                 )
             if getattr(model_args, 'mm_vision_sd_clip', None):
                 self.vision_tower.vision_tower.clip_projector = self.mm_projector.clip_projector
+            if getattr(model_args, 'mm_vision_sd_pe', -1) > 0:
+                self.vision_tower.vision_tower.clip_pe = self.mm_projector.clip_pe
         else:
             # In case it is frozen by LoRA
             for p in self.mm_projector.parameters():
