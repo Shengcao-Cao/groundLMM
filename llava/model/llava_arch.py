@@ -52,6 +52,7 @@ class LlavaMetaModel:
         mm_vision_select_feature = model_args.mm_vision_select_feature
         pretrain_mm_mlp_adapter = model_args.pretrain_mm_mlp_adapter
         mm_patch_merge_type = model_args.mm_patch_merge_type
+        mm_vision_resolution = model_args.mm_vision_resolution
         mm_hidden_size = model_args.mm_hidden_size
 
         self.config.mm_vision_tower = vision_tower
@@ -72,6 +73,7 @@ class LlavaMetaModel:
 
         self.config.use_mm_proj = True
         self.config.mm_projector_type = getattr(model_args, 'mm_projector_type', 'linear')
+        self.config.mm_vision_resolution = mm_vision_resolution
         self.config.mm_hidden_size = mm_hidden_size
         self.config.mm_vision_select_layer = mm_vision_select_layer
         self.config.mm_vision_select_feature = mm_vision_select_feature
