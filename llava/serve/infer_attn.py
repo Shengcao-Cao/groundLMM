@@ -32,7 +32,7 @@ def eval_model(args):
     model_path = os.path.expanduser(args.model_path)
     model_name = get_model_name_from_path(model_path)
     tokenizer, model, image_processor, context_len = load_pretrained_model(model_path, args.model_base, model_name)
-    model.get_vision_tower().to(torch.float16)
+    model.get_vision_tower().to(dtype=torch.float16)
 
     image_folder = os.path.expanduser(args.image_folder)
     image_files = sorted(os.listdir(image_folder))

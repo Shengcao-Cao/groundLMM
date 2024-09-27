@@ -81,6 +81,78 @@ class SDCLIPBlock(nn.Module):
         return y
 
 
+class SDCLIPMSBlock(nn.Module):
+    def __init__(self, in_channels, out_channels,
+                 clip_proj_in=1024, clip_proj_out=768, concat_clip=False, pe=-1):
+        super().__init__()
+        self.clip_projector = nn.Sequential(
+            nn.Linear(clip_proj_in, clip_proj_out),
+            nn.GELU(),
+            nn.Linear(clip_proj_out, clip_proj_out),
+        )
+        self.concat_clip = concat_clip
+        # hard-coded
+        self.sd_norm_layer = nn.ModuleList([nn.LayerNorm(in_channels[1] // 2) for _ in range(4)])
+        self.sd_convert_layer_0 = nn.ConvTranspose2d(in_channels[0], in_channels[1] // 2, kernel_size=2, stride=2)
+        self.sd_convert_layer_1 = nn.Conv2d(in_channels[1], in_channels[1] // 2, kernel_size=1, stride=1)
+        self.sd_convert_layer_2 = nn.Conv2d(in_channels[2], in_channels[1] // 2, kernel_size=2, stride=2)
+        self.sd_convert_layer_3 = nn.Conv2d(in_channels[3], in_channels[1] // 2, kernel_size=2, stride=2)
+        self.clip_norm_layer = nn.LayerNorm(clip_proj_in)
+        linear_in = in_channels[1] // 2 * 4
+        if concat_clip:
+            linear_in += clip_proj_in
+        self.linear = nn.Sequential(
+            nn.Linear(linear_in, out_channels),
+            nn.GELU(),
+            nn.Linear(out_channels, out_channels),
+        )
+        if pe > 0:
+            self.add_pe = True
+            self.clip_pe = nn.Parameter(torch.randn(pe, clip_proj_out) * 0.02)
+            self.vt_pe = nn.Parameter(torch.randn(pe, linear_in) * 0.02)
+        else:
+            self.add_pe = False
+
+    def forward(self, x):
+        # SD feature
+        y0 = self.sd_convert_layer_0(x[0])
+        y0 = y0.permute(0, 2, 3, 1)
+        y0 = self.sd_norm_layer[0](y0)
+        y0 = y0.permute(0, 3, 1, 2)
+
+        y1 = self.sd_convert_layer_1(x[1])
+        y1 = y1.permute(0, 2, 3, 1)
+        y1 = self.sd_norm_layer[1](y1)
+        y1 = y1.permute(0, 3, 1, 2)
+
+        y2 = self.sd_convert_layer_2(x[2])
+        y2 = y2.permute(0, 2, 3, 1)
+        y2 = self.sd_norm_layer[2](y2)
+        y2 = y2.permute(0, 3, 1, 2)
+
+        y3 = self.sd_convert_layer_3(x[3])
+        y3 = y3.permute(0, 2, 3, 1)
+        y3 = self.sd_norm_layer[3](y3)
+        y3 = y3.permute(0, 3, 1, 2)
+
+        y = torch.cat([y0, y1, y2, y3], dim=1)
+
+        if self.concat_clip:
+            # CLIP feature
+            z = x[-1]
+            z = z.permute(0, 2, 3, 1)
+            z = self.clip_norm_layer(z)
+            z = z.permute(0, 3, 1, 2)
+            y = torch.cat([y, z], dim=1)
+
+        b, c, h, w = y.shape
+        y = y.view(b, c, h * w).permute(0, 2, 1)
+        if self.add_pe:
+            y = y + self.vt_pe
+        y = self.linear(y)
+        return y
+
+
 def build_vision_projector(config, delay_load=False, **kwargs):
     projector_type = getattr(config, 'mm_projector_type', 'linear')
 
@@ -95,6 +167,14 @@ def build_vision_projector(config, delay_load=False, **kwargs):
                            concat_clip=config.mm_vision_sd_concat_clip,
                            pe=config.mm_vision_sd_pe,
                            **kwargs)
+
+    if projector_type == 'SDCLIPMSBlock':
+        return SDCLIPMSBlock(config.mm_hidden_size, config.hidden_size,
+                             clip_proj_in=config.mm_vision_sd_clip_proj_in,
+                             clip_proj_out=config.mm_vision_sd_clip_proj_out,
+                             concat_clip=config.mm_vision_sd_concat_clip,
+                             pe=config.mm_vision_sd_pe,
+                             **kwargs)
 
     mlp_gelu_match = re.match(r'^mlp(\d+)x_gelu$', projector_type)
     if mlp_gelu_match:
