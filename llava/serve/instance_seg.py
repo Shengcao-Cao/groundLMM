@@ -31,9 +31,11 @@ def group_tokens(tokens, tokenizer):
     doc = spacy_model(sequence)
     for np in doc.noun_chunks:
         phrases.append(np.text)
-        phrase_start.append(np.start_char)
-        phrase_end.append(np.end_char)
+        # phrase_start.append(np.start_char)
+        # phrase_end.append(np.end_char)
         core_words.append(np.root.text)
+        phrase_start.append(np.root.idx)
+        phrase_end.append(np.root.idx + len(np.root.text))
 
     # group tokens
     groups = []
@@ -133,6 +135,25 @@ def draw_legend(legend_data):
     return img
 
 
+def encode_segm(mask):
+    mask = np.array(mask, order='F', dtype=np.uint8)
+    rle = mask_utils.encode(mask)
+    rle['counts'] = rle['counts'].decode('utf-8')
+    return rle
+
+
+def decode_segm(segm, image_height, image_width):
+    if isinstance(segm, list):
+        rles = mask_utils.frPyObjects(segm, image_height, image_width)
+        rle = mask_utils.merge(rles)
+    elif isinstance(segm['counts'], list):
+        rle = mask_utils.frPyObjects(segm, image_height, image_width)
+    else:
+        rle = segm
+    mask = mask_utils.decode(rle)
+    return mask
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--input-folder', type=str)
@@ -146,6 +167,7 @@ if __name__ == '__main__':
     parser.add_argument('--category-thresh', type=float, default=0.0)
     parser.add_argument('--score-thresh', type=float, default=0.0)
     parser.add_argument('--better-visualize', action='store_true')
+    parser.add_argument('--samples', type=int, default=None)
     args = parser.parse_args()
 
     # load models
@@ -169,6 +191,13 @@ if __name__ == '__main__':
     category_embeddings = torch.stack(category_embeddings)
     print(category_embeddings.shape)
 
+    image_id_to_ref_anno = {}
+    for obj in ref_anno['annotations']:
+        image_id = obj['image_id']
+        if image_id not in image_id_to_ref_anno:
+            image_id_to_ref_anno[image_id] = []
+        image_id_to_ref_anno[image_id].append(obj)
+
     os.makedirs(args.output_folder, exist_ok=True)
     if args.output_json is None:
         if args.output_folder.endswith('/'):
@@ -191,9 +220,26 @@ if __name__ == '__main__':
         save = torch.load(input_path)
         answer = save['answer']
         tokens = save['sequences'][1:]
-        attentions = save['attentions']
+        attentions = save['attentions'].float()
+        attn_max = attentions.amax(dim=(1, 2), keepdim=True)
+        attentions = attentions / attn_max
         attn_mean = attentions.mean(dim=0)
         attentions = attentions - attn_mean
+
+        # load gt annotations
+        ref_anno_obj = image_id_to_ref_anno[image_id]
+        ref_anno_cat_ids = set()
+        for obj in ref_anno_obj:
+            ref_anno_cat_ids.add(obj['category_id'])
+        ref_category_ids = []
+        ref_category_names = []
+        ref_category_embeddings = []
+        for cat_index in range(len(category_ids)):
+            if category_ids[cat_index] in ref_anno_cat_ids:
+                ref_category_ids.append(category_ids[cat_index])
+                ref_category_names.append(category_names[cat_index])
+                ref_category_embeddings.append(category_embeddings[cat_index])
+        ref_category_embeddings = torch.stack(ref_category_embeddings)
 
         # group tokens
         groups = group_tokens(tokens, tokenizer)
@@ -204,10 +250,10 @@ if __name__ == '__main__':
             # phrase_embedding = get_bert_embedding(phrase, bert_tokenizer, bert_model)
             # phrase_embedding = get_spacy_embedding(phrase, spacy_model)
             phrase_embedding = get_spacy_embedding(core_word, spacy_model)
-            similarity = torch.cosine_similarity(category_embeddings, phrase_embedding.unsqueeze(0), dim=1).squeeze()
+            similarity = torch.cosine_similarity(ref_category_embeddings, phrase_embedding.unsqueeze(0), dim=1)
             most_similar = torch.argmax(similarity)
-            most_similar_id = category_ids[most_similar]
-            most_similar_name = category_names[most_similar]
+            most_similar_id = ref_category_ids[most_similar]
+            most_similar_name = ref_category_names[most_similar]
             group['pred_category_score'] = similarity[most_similar].item()
             group['pred_category_id'] = most_similar_id
             group['pred_category_name'] = most_similar_name
@@ -240,25 +286,27 @@ if __name__ == '__main__':
                                                           mode='bicubic', align_corners=False).squeeze(0)
         upsample_scores = upsample_scores[:, crop_h_start:crop_h_end, crop_w_start:crop_w_end]
         pred_masks = (upsample_scores >= args.score_thresh)
-
+        score_maps = []
         if args.merge_by_category:
             detected_category_ids = set([group['pred_category_id'] for group in groups])
             for category_id in detected_category_ids:
                 mask = None
+                score_map = None
                 noun_phrases = set()
                 for group_index, group in enumerate(groups):
                     if group['pred_category_id'] == category_id and group['pred_category_score'] >= args.category_thresh:
                         if mask is None:
                             mask = pred_masks[group_index]
+                            score_map = upsample_scores[group_index]
                         else:
                             mask |= pred_masks[group_index]
+                            score_map = torch.max(score_map, upsample_scores[group_index])
                         noun_phrases.add(group['phrase'].lower())
                 noun_phrases_str = ', '.join(noun_phrases)
                 if mask is None or mask.sum() == 0:
                     continue
                 id_counter += 1
-                segm_rle = mask_utils.encode(np.array(mask.numpy(), order='F', dtype=np.uint8))
-                segm_rle['counts'] = segm_rle['counts'].decode('utf-8')
+                segm_rle = encode_segm(mask.numpy())
                 instance = {
                     'id': id_counter,
                     'image_id': image_id,
@@ -271,16 +319,17 @@ if __name__ == '__main__':
                     'area': mask.sum().item(),
                 }
                 instance_json.append(instance)
+                score_maps.append(score_map)
         else:
             for group_index, group in enumerate(groups):
                 if group['pred_category_score'] < args.category_thresh:
                     continue
+                score_map = upsample_scores[group_index]
                 mask = pred_masks[group_index]
                 if mask.sum() == 0:
                     continue
                 id_counter += 1
-                segm_rle = mask_utils.encode(np.array(mask.numpy(), order='F', dtype=np.uint8))
-                segm_rle['counts'] = segm_rle['counts'].decode('utf-8')
+                segm_rle = encode_segm(mask.numpy())
                 instance = {
                     'id': id_counter,
                     'image_id': image_id,
@@ -293,6 +342,7 @@ if __name__ == '__main__':
                     'area': mask.sum().item(),
                 }
                 instance_json.append(instance)
+                score_maps.append(score_map)
 
         if args.better_visualize:
             original_image = Image.open(os.path.join(args.image_folder, file_name))
@@ -302,37 +352,60 @@ if __name__ == '__main__':
                     instances.append(instance)
                 else:
                     break
+            instances = instances[::-1]
             segm_map = np.zeros((image_height, image_width, 3), dtype=np.uint8)
-            instances = sorted(instances, key=lambda x: x['area'], reverse=True)
+            # instances = sorted(instances, key=lambda x: x['area'], reverse=True)
             legend_data = []
             for instance in instances:
-                mask = mask_utils.decode(instance['segmentation'])
+                mask = decode_segm(instance['segmentation'], image_height, image_width)
                 color = category_dict[instance['category_id']]['color']
                 segm_map[mask > 0] = color
                 legend_data.append({
                     'color': tuple(color),
                     'name': instance['noun_phrase'] + ' -> ' + instance['category_name'],
                 })
+            gt_segm_map = np.zeros((image_height, image_width, 3), dtype=np.uint8)
+            for obj in ref_anno_obj:
+                if obj['image_id'] == image_id:
+                    mask = decode_segm(obj['segmentation'], image_height, image_width)
+                    color = category_dict[obj['category_id']]['color']
+                    gt_segm_map[mask > 0] = color
             legend = draw_legend(legend_data)
             # legend_height = original_image.size[1]
             # legend_width = legend_height * legend.size[0] // legend.size[1]
-            legend_width = original_image.size[0] * 2
+            legend_width = original_image.size[0] * 3
             legend_height = legend_width * legend.size[1] // legend.size[0]
             legend = legend.resize((legend_width, legend_height))
-            save_image = np.concatenate([np.array(original_image), segm_map], axis=1)
+            save_image = np.concatenate([np.array(original_image), gt_segm_map, segm_map], axis=1)
             save_image = np.concatenate([save_image, np.array(legend)], axis=0)
             Image.fromarray(save_image).save(os.path.join(args.output_folder, file_base + '_vis.png'))
 
-            for instance in instances:
+            for instance, score_map in zip(instances, score_maps):
                 individual_map = np.zeros((image_height, image_width, 3), dtype=np.uint8)
-                mask = mask_utils.decode(instance['segmentation'])
                 color = category_dict[instance['category_id']]['color']
+                score_map = np.clip(score_map.cpu().numpy()[:, :, None] / args.score_thresh, 0.0, 1.0)
+                individual_map += (score_map * color).astype(np.uint8)
+                individual_save_image = np.concatenate([np.array(original_image), individual_map], axis=1)
+                if args.merge_by_category:
+                    output_file = os.path.join(args.output_folder, file_base + f'_{instance["id"]}_{instance["category_name"]}.png')
+                else:
+                    output_file = os.path.join(args.output_folder, file_base + f'_{instance["id"]}_{instance["noun_phrase"].replace(" ", "_")}.png')
+                Image.fromarray(individual_save_image).save(output_file)
+
+            for obj in ref_anno_obj:
+                individual_map = np.zeros((image_height, image_width, 3), dtype=np.uint8)
+                mask = decode_segm(obj['segmentation'], image_height, image_width)
+                color = category_dict[obj['category_id']]['color']
                 individual_map[mask > 0] = color
                 individual_save_image = np.concatenate([np.array(original_image), individual_map], axis=1)
-                Image.fromarray(individual_save_image).save(os.path.join(args.output_folder, file_base + f'_{instance["category_name"]}.png'))
+                output_file = os.path.join(args.output_folder, file_base + f'_gt_{category_dict[obj["category_id"]]["name"]}.png')
+                Image.fromarray(individual_save_image).save(output_file)
 
         if (image_index + 1) % 100 == 0:
             print(f'Processed {image_index + 1} / {len(ref_anno["images"])} images', flush=True)
+
+        if args.samples is not None and image_index + 1 >= args.samples:
+            break
 
     with open(args.output_json, 'w') as f:
         json.dump(instance_json, f, indent=2)
