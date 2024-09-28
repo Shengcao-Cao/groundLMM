@@ -270,7 +270,7 @@ class SDCLIPFeaturizer:
         if self.add_pe:
             proj_clip_features = proj_clip_features + self.clip_pe
         if self.implicit_caption:
-            prompt_embeds = proj_clip_features + self.null_prompt_embeds.mean(1, keepdim=True)
+            prompt_embeds = proj_clip_features
         else:
             if prompt == self.null_prompt:
                 prompt_embeds = self.null_prompt_embeds
