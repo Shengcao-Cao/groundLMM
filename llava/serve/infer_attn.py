@@ -13,7 +13,7 @@ from llava.mm_utils import tokenizer_image_token, process_images, get_model_name
 from PIL import Image
 import math
 
-from .utils import split_list, get_chunk
+from utils import split_list, get_chunk
 
 
 def eval_model(args):

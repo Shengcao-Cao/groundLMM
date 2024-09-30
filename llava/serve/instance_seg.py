@@ -1,5 +1,4 @@
 import argparse
-import cv2
 import json
 import os
 import tqdm
@@ -9,11 +8,10 @@ import torch
 import spacy
 
 from PIL import Image, ImageDraw, ImageFont
-from pycocotools import mask as mask_utils
 from transformers import AutoTokenizer
 from segment_anything import sam_model_registry, SamPredictor
 
-from .utils import group_tokens, get_spacy_embedding, encode_segm, decode_segm, convert_mask_SAM, convert_box_SAM
+from utils import group_tokens, get_spacy_embedding, encode_segm, decode_segm, convert_mask_SAM, convert_box_SAM
 
 
 def draw_legend(legend_data):
@@ -77,6 +75,8 @@ if __name__ == '__main__':
     parser.add_argument('--offset', type=int, default=1)
     parser.add_argument('--merge-by-category', action='store_true')
     parser.add_argument('--category-thresh', type=float, default=0.0)
+    parser.add_argument('--aspect-ratio', type=str, default='pad')
+    parser.add_argument('--remove-corner', action='store_true')
     parser.add_argument('--attn-temp', type=float, default=0.0002)
     parser.add_argument('--box-thresh', type=float, default=0.75)
     parser.add_argument('--better-visualize', action='store_true')
@@ -124,8 +124,9 @@ if __name__ == '__main__':
         image_id = image['id']
         file_name = image['file_name']
         file_base = os.path.splitext(file_name)[0]
-        image_width = image['width']
-        image_height = image['height']
+        image_pil = Image.open(os.path.join(args.image_folder, file_name)).convert('RGB')
+        image_width = image_pil.width
+        image_height = image_pil.height
 
         # load saved data
         input_path = os.path.join(args.input_folder, file_base + '.pth')
@@ -179,17 +180,30 @@ if __name__ == '__main__':
         # create segmentation masks
         group_scores = [group['attention'] for group in groups]
         group_scores = torch.stack(group_scores)
-        upsample_size = max(image_height, image_width)
-        crop_h_start = (upsample_size - image_height) // 2
-        crop_h_end = crop_h_start + image_height
-        crop_w_start = (upsample_size - image_width) // 2
-        crop_w_end = crop_w_start + image_width
-        upsample_scores = torch.nn.functional.interpolate(group_scores.unsqueeze(0),
-                                                          size=(upsample_size, upsample_size),
-                                                          mode='bicubic', align_corners=False).squeeze(0)
-        upsample_scores = upsample_scores[:, crop_h_start:crop_h_end, crop_w_start:crop_w_end]
+        if args.remove_corner:
+            min_value = group_scores.min()
+            group_scores[:, 0, 0] = min_value
+            group_scores[:, 0, -1] = min_value
+            group_scores[:, -1, 0] = min_value
+            group_scores[:, -1, -1] = min_value
 
-        image_pil = Image.open(os.path.join(args.image_folder, file_name)).convert('RGB')
+        if args.aspect_ratio == 'pad':
+            upsample_size = max(image_height, image_width)
+            crop_h_start = (upsample_size - image_height) // 2
+            crop_h_end = crop_h_start + image_height
+            crop_w_start = (upsample_size - image_width) // 2
+            crop_w_end = crop_w_start + image_width
+            upsample_scores = torch.nn.functional.interpolate(group_scores.unsqueeze(0),
+                                                              size=(upsample_size, upsample_size),
+                                                              mode='bicubic', align_corners=False).squeeze(0)
+            upsample_scores = upsample_scores[:, crop_h_start:crop_h_end, crop_w_start:crop_w_end]
+        elif args.aspect_ratio == 'original':
+            upsample_scores = torch.nn.functional.interpolate(group_scores.unsqueeze(0),
+                                                              size=(image_height, image_width),
+                                                              mode='bicubic', align_corners=False).squeeze(0)
+        else:
+            raise NotImplementedError(f'Invalid aspect ratio: {args.aspect_ratio}')
+
         sam_predictor.set_image(np.array(image_pil))
         N, H, W = upsample_scores.shape
         if args.sam_mode == 'point':
