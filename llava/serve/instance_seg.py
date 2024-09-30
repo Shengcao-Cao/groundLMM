@@ -13,80 +13,7 @@ from pycocotools import mask as mask_utils
 from transformers import AutoTokenizer
 from segment_anything import sam_model_registry, SamPredictor
 
-
-def group_tokens(tokens, tokenizer):
-    # find correspondence between tokens and chars
-    token_start = []
-    token_end = []
-    cur_length = 0
-    for i in range(len(tokens)):
-        token_start.append(cur_length)
-        sequence = tokenizer.decode(tokens[:i+1], skip_special_tokens=True)
-        cur_length = len(sequence)
-        token_end.append(cur_length)
-
-    # find noun phrases
-    phrases = []
-    phrase_start = []
-    phrase_end = []
-    core_words = []
-    doc = spacy_model(sequence)
-    for np in doc.noun_chunks:
-        phrases.append(np.text)
-        core_words.append(np.root.text)
-        phrase_start.append(np.root.idx)
-        phrase_end.append(np.root.idx + len(np.root.text))
-
-    # group tokens
-    groups = []
-    for i in range(len(phrases)):
-        group_tokens = []
-        for j in range(len(tokens)):
-            # check if token has overlap with phrase
-            if token_start[j] < phrase_end[i] and token_end[j] > phrase_start[i]:
-                group_tokens.append(j)
-        group = {
-            'phrase': phrases[i],
-            'core_word': core_words[i],
-            'tokens': group_tokens,
-        }
-        groups.append(group)
-
-    return groups
-
-
-def get_spacy_embedding(phrase, spacy_model):
-    phrase = phrase.lower()
-    if phrase.startswith('the '):
-        phrase = phrase[4:]
-    elif phrase.startswith('an '):
-        phrase = phrase[3:]
-    elif phrase.startswith('a '):
-        phrase = phrase[2:]
-    doc = spacy_model(phrase)
-    embedding = torch.tensor(doc.vector)
-    return embedding
-
-
-def get_bert_embedding(phrase, bert_tokenizer, bert_model, aggregate='mean'):
-    phrase = phrase.lower()
-    if phrase.startswith('the '):
-        phrase = phrase[4:]
-    elif phrase.startswith('an '):
-        phrase = phrase[3:]
-    elif phrase.startswith('a '):
-        phrase = phrase[2:]
-    with torch.no_grad():
-        tokens = bert_tokenizer(phrase, return_tensors='pt', padding=True, truncation=True).to('cuda')
-        outputs = bert_model(**tokens)
-        embedding = outputs.last_hidden_state.squeeze(dim=0)
-        if aggregate == 'mean':
-            embedding = embedding.mean(dim=0)
-        elif aggregate == 'cls':
-            embedding = embedding[0]
-        else:
-            raise ValueError(f'Invalid aggregation method: {aggregate}')
-        return embedding
+from .utils import group_tokens, get_spacy_embedding, encode_segm, decode_segm, convert_mask_SAM, convert_box_SAM
 
 
 def draw_legend(legend_data):
@@ -135,47 +62,6 @@ def draw_legend(legend_data):
     return img
 
 
-def encode_segm(mask):
-    mask = np.array(mask, order='F', dtype=np.uint8)
-    rle = mask_utils.encode(mask)
-    rle['counts'] = rle['counts'].decode('utf-8')
-    return rle
-
-
-def decode_segm(segm, image_height, image_width):
-    if isinstance(segm, list):
-        rles = mask_utils.frPyObjects(segm, image_height, image_width)
-        rle = mask_utils.merge(rles)
-    elif isinstance(segm['counts'], list):
-        rle = mask_utils.frPyObjects(segm, image_height, image_width)
-    else:
-        rle = segm
-    mask = mask_utils.decode(rle)
-    return mask
-
-
-def mask_iou(masks):
-    N, H, W = masks.shape
-    masks = masks.reshape(N, -1).astype(int)
-    intersection = masks @ masks.T
-    area = masks.sum(axis=1)
-    union = area[:, None] + area[None, :] - intersection
-    iou = intersection / (union + 1e-6)
-    return iou
-
-
-def nms(masks, iou_thresh=0.75):
-    N = masks.shape[0]
-    iou = mask_iou(masks)
-    keep = [True] * N
-    for i in range(N):
-        if keep[i]:
-            for j in range(i+1, N):
-                if iou[i, j] > iou_thresh:
-                    keep[j] = False
-    return keep
-
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--input-folder', type=str)
@@ -187,8 +73,11 @@ if __name__ == '__main__':
     parser.add_argument('--tokenizer', type=str)
     parser.add_argument('--sam-model', type=str, default='vit_h')
     parser.add_argument('--sam-ckpt', type=str, default='sam_vit_h_4b8939.pth')
+    parser.add_argument('--sam-mode', type=str, default='point')
     parser.add_argument('--merge-by-category', action='store_true')
     parser.add_argument('--category-thresh', type=float, default=0.0)
+    parser.add_argument('--attn-temp', type=float, default=0.0002)
+    parser.add_argument('--box-thresh', type=float, default=0.75)
     parser.add_argument('--better-visualize', action='store_true')
     parser.add_argument('--samples', type=int, default=None)
     args = parser.parse_args()
@@ -264,7 +153,7 @@ if __name__ == '__main__':
         ref_category_embeddings = torch.stack(ref_category_embeddings)
 
         # group tokens
-        groups = group_tokens(tokens, tokenizer)
+        groups = group_tokens(tokens, tokenizer, spacy_model)
         for group in groups:
             # predict category
             phrase = group['phrase']
@@ -302,15 +191,25 @@ if __name__ == '__main__':
         image_pil = Image.open(os.path.join(args.image_folder, file_name)).convert('RGB')
         sam_predictor.set_image(np.array(image_pil))
         N, H, W = upsample_scores.shape
-        max_indices = torch.argmax(upsample_scores.reshape(N, -1), dim=1)
-        h_coords = max_indices // W
-        w_coords = max_indices % W
-        point_coords_np = torch.stack([w_coords, h_coords], dim=1).numpy()
-        point_coords = torch.tensor(sam_predictor.transform.apply_coords(point_coords_np, sam_predictor.original_size)).unsqueeze(1).cuda()
-        point_labels = torch.tensor([1] * N).unsqueeze(1).cuda()
-        pred_masks, pred_scores, _ = sam_predictor.predict_torch(point_coords, point_labels, multimask_output=True)
-        pred_masks = pred_masks[:, -1].cpu()
-        pred_scores = pred_scores[:, -1].cpu()
+        if args.sam_mode == 'point':
+            max_indices = torch.argmax(upsample_scores.reshape(N, -1), dim=1)
+            h_coords = max_indices // W
+            w_coords = max_indices % W
+            point_coords_np = torch.stack([w_coords, h_coords], dim=1).numpy()
+            point_coords = torch.tensor(sam_predictor.transform.apply_coords(point_coords_np, sam_predictor.original_size)).unsqueeze(1).cuda()
+            point_labels = torch.tensor([1] * N).unsqueeze(1).cuda()
+            pred_masks, pred_scores, _ = sam_predictor.predict_torch(point_coords=point_coords, point_labels=point_labels, multimask_output=True)
+            pred_masks = pred_masks[:, -1].cpu()
+            pred_scores = pred_scores[:, -1].cpu()
+        elif args.sam_mode == 'mask':
+            mask_input = convert_mask_SAM(upsample_scores / args.attn_temp).unsqueeze(1).cuda()
+            boxes_np = convert_box_SAM(upsample_scores / args.attn_temp, threshold=args.box_thresh)
+            boxes = torch.tensor(sam_predictor.transform.apply_boxes(boxes_np, sam_predictor.original_size)).unsqueeze(1).cuda()
+            pred_masks, pred_scores, _ = sam_predictor.predict_torch(point_coords=None, point_labels=None, mask_input=mask_input, boxes=boxes, multimask_output=True)
+            pred_masks = pred_masks[:, -1].cpu()
+            pred_scores = pred_scores[:, -1].cpu()
+        else:
+            raise NotImplementedError(f'Invalid SAM mode: {args.sam_mode}')
 
         instances = []
         if args.merge_by_category:
@@ -361,8 +260,11 @@ if __name__ == '__main__':
                     'score': pred_scores[group_index].item(),
                     'iscrowd': 0,
                     'area': mask.sum().item(),
-                    'point': [int(point_coords_np[group_index][0]), int(point_coords_np[group_index][1])],
                 }
+                if args.sam_mode == 'point':
+                    instance['point'] = [int(point_coords_np[group_index][0]), int(point_coords_np[group_index][1])]
+                elif args.sam_mode == 'mask':
+                    instance['box'] = [int(x) for x in boxes_np[group_index].tolist()]
                 instances.append(instance)
 
         instance_json.extend(instances)
@@ -401,6 +303,14 @@ if __name__ == '__main__':
                 if 'point' in instance:
                     point = instance['point']
                     individual_map[point[1]-5:point[1]+6, point[0]-5:point[0]+6] = (255, 255, 255)
+                if 'box' in instance:
+                    x1, y1, x2, y2 = instance['box']
+                    for x in range(x1, x2):
+                        individual_map[y1, x] = (255, 255, 255)
+                        individual_map[y2 - 1, x] = (255, 255, 255)
+                    for y in range(y1, y2):
+                        individual_map[y, x1] = (255, 255, 255)
+                        individual_map[y, x2 - 1] = (255, 255, 255)
                 individual_save_image = np.concatenate([np.array(original_image), individual_map], axis=1)
                 if args.merge_by_category:
                     output_file = os.path.join(args.output_folder, file_base + f'_{instance["id"]}_{instance["category_name"]}.png')
