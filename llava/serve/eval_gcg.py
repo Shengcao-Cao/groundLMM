@@ -19,10 +19,7 @@ def parse_args():
     parser.add_argument('--pd-folder', required=True)
     parser.add_argument('--gt-caption', required=True)
     parser.add_argument('--gt-mask', required=True)
-    # parser.add_argument('--split', required=True, help='Evaluation split, options are "val", "test"')
-    # parser.add_argument('--prediction_dir_path', required=True, help='The path where the inference results are stored.')
-    # parser.add_argument('--gt_dir_path', required=False, default='./data/GranDf/annotations/val_test',
-    #                     help='The path containing GranD-f evaluation annotations.')
+    parser.add_argument('--split', required=True, help='Evaluation split, options are "val", "test"')
 
     args = parser.parse_args()
 
@@ -209,7 +206,7 @@ def main():
             all_images_ids.append(image['id'])
 
     # The directory is used to store intermediate files
-    tmp_dir_path = f'tmp/{os.path.basename(args.pd_folder)}'
+    tmp_dir_path = f'tmp/{os.path.basename(args.pd_folder)}_{args.split}'
     os.makedirs(tmp_dir_path, exist_ok=True)  # Create directory if not exists already
 
     # Create predictions
