@@ -70,10 +70,11 @@ if __name__ == '__main__':
     parser.add_argument('--ref-anno', type=str)
     parser.add_argument('--image-folder', type=str)
     parser.add_argument('--category-file', type=str)
-    parser.add_argument('--tokenizer', type=str)
+    parser.add_argument('--tokenizer', type=str, default='lmsys/vicuna-7b-v1.5')
     parser.add_argument('--sam-model', type=str, default='vit_h')
     parser.add_argument('--sam-ckpt', type=str, default='sam_vit_h_4b8939.pth')
     parser.add_argument('--sam-mode', type=str, default='point')
+    parser.add_argument('--offset', type=int, default=1)
     parser.add_argument('--merge-by-category', action='store_true')
     parser.add_argument('--category-thresh', type=float, default=0.0)
     parser.add_argument('--attn-temp', type=float, default=0.0002)
@@ -130,7 +131,7 @@ if __name__ == '__main__':
         input_path = os.path.join(args.input_folder, file_base + '.pth')
         save = torch.load(input_path)
         answer = save['answer']
-        tokens = save['sequences'][1:]
+        tokens = save['sequences'][args.offset:]
         attentions = save['attentions'].float()
         attn_mean = attentions.mean(dim=0)
         attentions = attentions - attn_mean

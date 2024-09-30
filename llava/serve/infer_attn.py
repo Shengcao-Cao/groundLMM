@@ -3,7 +3,6 @@ import torch
 import os
 import json
 from tqdm import tqdm
-import shortuuid
 
 from llava.constants import IMAGE_TOKEN_INDEX, DEFAULT_IMAGE_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
 from llava.conversation import conv_templates, SeparatorStyle
@@ -14,16 +13,7 @@ from llava.mm_utils import tokenizer_image_token, process_images, get_model_name
 from PIL import Image
 import math
 
-
-def split_list(lst, n):
-    '''Split a list into n (roughly) equal-sized chunks'''
-    chunk_size = math.ceil(len(lst) / n)  # integer division
-    return [lst[i:i+chunk_size] for i in range(0, len(lst), chunk_size)]
-
-
-def get_chunk(lst, n, k):
-    chunks = split_list(lst, n)
-    return chunks[k]
+from .utils import split_list, get_chunk
 
 
 def eval_model(args):
