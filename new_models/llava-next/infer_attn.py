@@ -124,13 +124,24 @@ def eval_model(args):
                 save_attn_i = output_ids['attentions'][i]                                           # n_layers x n_heads x n_output x n_input
                 save_attn_i = torch.cat([x[:, -2:-1, :] for x in save_attn_i])                      # n_layers x n_heads x 1 x n_input
                 if i == 0:
-                    image_token_length = save_attn_i.shape[-1] - input_ids.shape[1] + 1
-                    image_token_end_index = image_token_start_index + image_token_length
-                    assert image_token_length == new_feature_height * (new_feature_width + 1) + num_base_patches, \
-                        f'Image token length mismatch: Expected {new_feature_height * (new_feature_width + 1) + num_base_patches}, got {image_token_length}'
-                save_attn_i = save_attn_i[:, :, -1, image_token_start_index+num_base_patches:image_token_end_index] # n_layers x n_heads x n_image_tokens
-                save_attn_i = save_attn_i.mean(dim=(0, 1))                                                          # n_image_tokens
-                save_attn_i = save_attn_i.reshape(new_feature_height, new_feature_width + 1)[:, :-1]                # feature_height x feature_width (excluding the newline token)
+                    if args.use_base_patches:
+                        image_token_length = num_base_patches
+                        image_token_end_index = image_token_start_index + image_token_length
+                        new_feature_width = num_patches_per_side
+                        new_feature_height = num_patches_per_side
+                    else:
+                        image_token_length = save_attn_i.shape[-1] - input_ids.shape[1] + 1
+                        image_token_end_index = image_token_start_index + image_token_length
+                        image_token_start_index += num_base_patches
+                        image_token_length -= num_base_patches
+                        assert image_token_length == new_feature_height * (new_feature_width + 1), \
+                            f'Image token length mismatch: Expected {new_feature_height * (new_feature_width + 1)}, got {image_token_length}'
+                save_attn_i = save_attn_i[:, :, -1, image_token_start_index:image_token_end_index]          # n_layers x n_heads x n_image_tokens
+                save_attn_i = save_attn_i.mean(dim=(0, 1))                                                  # n_image_tokens
+                if args.use_base_patches:
+                    save_attn_i = save_attn_i.reshape(new_feature_height, new_feature_width)
+                else:
+                    save_attn_i = save_attn_i.reshape(new_feature_height, new_feature_width + 1)[:, :-1]    # feature_height x feature_width (excluding the newline token)
                 save_attn.append(save_attn_i.detach().cpu())
 
         save_attn = torch.stack(save_attn)
@@ -157,6 +168,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_beams', type=int, default=1)
     parser.add_argument('--max_new_tokens', type=int, default=1024)
     parser.add_argument('--sample', type=str, default=None)
+    parser.add_argument('--use-base-patches', action='store_true')
     args = parser.parse_args()
 
     eval_model(args)
