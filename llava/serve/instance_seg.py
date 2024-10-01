@@ -73,7 +73,7 @@ if __name__ == '__main__':
     parser.add_argument('--sam-ckpt', type=str, default='sam_vit_h_4b8939.pth')
     parser.add_argument('--sam-mode', type=str, default='point')
     parser.add_argument('--offset', type=int, default=1)
-    parser.add_argument('--merge-by-category', action='store_true')
+    parser.add_argument('--more-masks', action='store_true')
     parser.add_argument('--category-thresh', type=float, default=0.0)
     parser.add_argument('--aspect-ratio', type=str, default='pad')
     parser.add_argument('--remove-corner', action='store_true')
@@ -214,52 +214,49 @@ if __name__ == '__main__':
             point_coords = torch.tensor(sam_predictor.transform.apply_coords(point_coords_np, sam_predictor.original_size)).unsqueeze(1).cuda()
             point_labels = torch.tensor([1] * N).unsqueeze(1).cuda()
             pred_masks, pred_scores, _ = sam_predictor.predict_torch(point_coords=point_coords, point_labels=point_labels, multimask_output=True)
-            pred_masks = pred_masks[:, -1].cpu()
-            pred_scores = pred_scores[:, -1].cpu()
         elif args.sam_mode == 'mask':
             mask_input = convert_mask_SAM(upsample_scores / args.attn_temp).unsqueeze(1).cuda()
             boxes_np = convert_box_SAM(upsample_scores / args.attn_temp, threshold=args.box_thresh)
             boxes = torch.tensor(sam_predictor.transform.apply_boxes(boxes_np, sam_predictor.original_size)).unsqueeze(1).cuda()
             pred_masks, pred_scores, _ = sam_predictor.predict_torch(point_coords=None, point_labels=None, mask_input=mask_input, boxes=boxes, multimask_output=True)
-            pred_masks = pred_masks[:, -1].cpu()
-            pred_scores = pred_scores[:, -1].cpu()
         else:
             raise NotImplementedError(f'Invalid SAM mode: {args.sam_mode}')
 
-        instances = []
-        if args.merge_by_category:
-            detected_category_ids = set([group['pred_category_id'] for group in groups])
-            for category_id in detected_category_ids:
-                mask = None
-                noun_phrases = set()
-                for group_index, group in enumerate(groups):
-                    if group['pred_category_id'] == category_id and group['pred_category_score'] >= args.category_thresh:
-                        if mask is None:
-                            mask = pred_masks[group_index]
-                        else:
-                            mask |= pred_masks[group_index]
-                        noun_phrases.add(group['phrase'].lower())
-                noun_phrases_str = ', '.join(noun_phrases)
-                if mask is None or mask.sum() == 0:
-                    continue
-                id_counter += 1
-                segm_rle = encode_segm(mask.numpy())
-                instance = {
-                    'id': id_counter,
-                    'image_id': image_id,
-                    'category_id': category_id,
-                    'category_name': category_dict[category_id]['name'],
-                    'noun_phrase': noun_phrases_str,
-                    'segmentation': segm_rle,
-                    'score': 1.0,
-                    'iscrowd': 0,
-                    'area': mask.sum().item(),
-                }
-                instances.append(instance)
+        if args.more_masks:
+            pred_masks = pred_masks.flatten(0, 1).cpu()
+            pred_scores = pred_scores.flatten(0, 1).cpu()
         else:
-            for group_index, group in enumerate(groups):
-                if group['pred_category_score'] < args.category_thresh:
-                    continue
+            pred_masks = pred_masks[:, -1].cpu()
+            pred_scores = pred_scores[:, -1].cpu()
+
+        instances = []
+        for group_index, group in enumerate(groups):
+            if group['pred_category_score'] < args.category_thresh:
+                continue
+            if args.more_masks:
+                for i in range(3):
+                    mask = pred_masks[group_index * 3 + i]
+                    if mask.sum() == 0:
+                        continue
+                    id_counter += 1
+                    segm_rle = encode_segm(mask.numpy())
+                    instance = {
+                        'id': id_counter,
+                        'image_id': image_id,
+                        'category_id': group['pred_category_id'],
+                        'category_name': group['pred_category_name'],
+                        'noun_phrase': group['phrase'],
+                        'segmentation': segm_rle,
+                        'score': pred_scores[group_index * 3 + i].item(),
+                        'iscrowd': 0,
+                        'area': mask.sum().item(),
+                    }
+                    if args.sam_mode == 'point':
+                        instance['point'] = [int(point_coords_np[group_index][0]), int(point_coords_np[group_index][1])]
+                    elif args.sam_mode == 'mask':
+                        instance['box'] = [int(x) for x in boxes_np[group_index * 3 + i].tolist()]
+                    instances.append(instance)
+            else:
                 mask = pred_masks[group_index]
                 if mask.sum() == 0:
                     continue
@@ -327,10 +324,7 @@ if __name__ == '__main__':
                         individual_map[y, x1] = (255, 255, 255)
                         individual_map[y, x2 - 1] = (255, 255, 255)
                 individual_save_image = np.concatenate([np.array(original_image), individual_map], axis=1)
-                if args.merge_by_category:
-                    output_file = os.path.join(args.output_folder, file_base + f'_{instance["id"]}_{instance["category_name"]}.png')
-                else:
-                    output_file = os.path.join(args.output_folder, file_base + f'_{instance["id"]}_{instance["noun_phrase"].replace(" ", "_")}.png')
+                output_file = os.path.join(args.output_folder, file_base + f'_{instance["id"]}_{instance["noun_phrase"].replace(" ", "_")}.png')
                 Image.fromarray(individual_save_image).save(output_file)
 
             for obj in ref_anno_obj:
