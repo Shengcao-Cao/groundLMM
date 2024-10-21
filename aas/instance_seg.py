@@ -67,7 +67,6 @@ if __name__ == '__main__':
     parser.add_argument('--output-json', type=str)
     parser.add_argument('--ref-anno', type=str)
     parser.add_argument('--image-folder', type=str)
-    parser.add_argument('--category-file', type=str)
     parser.add_argument('--tokenizer', type=str, default='lmsys/vicuna-7b-v1.5')
     parser.add_argument('--sam-model', type=str, default='vit_h')
     parser.add_argument('--sam-ckpt', type=str, default='sam_vit_h_4b8939.pth')
@@ -92,9 +91,7 @@ if __name__ == '__main__':
     # load reference annotation
     with open(args.ref_anno, 'r') as f:
         ref_anno = json.load(f)
-    with open(args.category_file, 'r') as f:
-        categories = json.load(f)
-    categories = [cat for cat in categories if cat['isthing'] == 1]
+    categories = ref_anno['categories']
     categories = sorted(categories, key=lambda x: x['id'])
     category_dict = {x['id']: x for x in categories}
     category_ids = [x['id'] for x in categories]

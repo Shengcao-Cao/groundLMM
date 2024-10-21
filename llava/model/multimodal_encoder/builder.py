@@ -1,10 +1,11 @@
 import os
 from .clip_encoder import CLIPVisionTower, CLIPVisionTowerS2
-from .convnext_clip_encoder import ConvNeXtCLIPVisionTower
-from .siglip_encoder import SigLIPVisionTower
-from .dinov2_encoder import DINOv2VisionTower
-from .timm_siglip_encoder import TimmSigLIPVisionTower
 from .sd_encoder import SDCLIPVisionTower
+# only when you want to try other backbones
+# from .convnext_clip_encoder import ConvNeXtCLIPVisionTower
+# from .siglip_encoder import SigLIPVisionTower
+# from .dinov2_encoder import DINOv2VisionTower
+# from .timm_siglip_encoder import TimmSigLIPVisionTower
 
 
 def build_vision_tower(vision_tower_cfg, **kwargs):

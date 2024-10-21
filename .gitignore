@@ -39,3 +39,4 @@ serve_images/
 /save
 /ngc*/
 /venv/
+/checkpoints/

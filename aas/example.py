@@ -16,7 +16,7 @@ from PIL import Image
 from transformers import AutoTokenizer
 from segment_anything import sam_model_registry, SamPredictor
 
-from utils import group_tokens, nms_with_scores, get_spacy_embedding
+from utils import group_tokens, merge_preds, get_spacy_embedding
 
 
 # COCO categories, used to filter out abstract noun phrases
@@ -27,7 +27,8 @@ seed_categories = ['person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 
                    'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple', 'sandwich', 'orange',
                    'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 'chair', 'couch', 'potted plant', 'bed',
                    'dining table', 'toilet', 'tv', 'laptop', 'mouse', 'remote', 'keyboard', 'cell phone', 'microwave', 'oven',
-                   'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush']
+                   'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush',
+                   'woman', 'man']
 
 
 if __name__ == '__main__':
@@ -88,6 +89,7 @@ if __name__ == '__main__':
     os.makedirs(os.path.dirname(output_paths[0]), exist_ok=True)
 
     for image_path, output_path in zip(image_paths, output_paths):
+        # process image and question
         qs = args.question
         cur_prompt = qs
         if model.config.mm_use_im_start_end:
@@ -199,6 +201,7 @@ if __name__ == '__main__':
             pred_masks = pred_masks[:, -1].cpu().numpy()
             pred_scores = pred_scores[:, -1].cpu().numpy()
 
+            # filter based on spacy similarity and SAM score
             keep_groups = []
             for group_index in range(len(groups)):
                 core_word = groups[group_index]['core_word']
@@ -231,12 +234,13 @@ if __name__ == '__main__':
             groups = [groups[i] for i in keep_groups]
             pred_masks = pred_masks[keep_groups]
             pred_scores = pred_scores[keep_groups]
-            keep_groups = nms_with_scores(pred_masks, pred_scores, iou_thresh=0.75)
-            keep_groups = sorted(keep_groups)
+
+            # process overlapping masks for better visualization
+            use_mask_indices = merge_preds(pred_masks, pred_scores)
 
             # produce segmentation map
             image_vis = np.array(image)
-            vis_groups = [groups[i] for i in keep_groups]
+            vis_groups = [groups[i] for i in set(use_mask_indices)]
             for group in sorted(vis_groups, key=lambda x: x['area'], reverse=True):
                 color = group['color']
                 mask = group['mask']
@@ -244,16 +248,17 @@ if __name__ == '__main__':
 
             # use html code to color phrases
             color_answer = answer
-            for group in vis_groups:
+            for group_index, group in enumerate(groups):
                 core_word = group['core_word']
                 start_char = group['start_char']
                 end_char = group['end_char']
-                color = group['color'].tolist()
+                color = groups[use_mask_indices[group_index]]['color'].tolist()
                 # phrase_html = f'<span style="background-color: rgb({color[0]}, {color[1]}, {color[2]})">{phrase}</span>'
                 phrase_html = f'<span style="color: rgb({color[0]}, {color[1]}, {color[2]})">{core_word}</span>'
                 new_start = color_answer.find(answer[start_char:])
                 color_answer = color_answer[:new_start] + phrase_html + color_answer[new_start + end_char - start_char:]
 
+            # output answers and save visualization
             print('#' * 80)
             print(image_path)
             print('-' * 40)

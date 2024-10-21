@@ -121,6 +121,21 @@ def nms_with_scores(masks, scores, iou_thresh=0.75):
     return indices[keep]
 
 
+def merge_preds(masks, scores, iou_thresh=0.75):
+    N = masks.shape[0]
+    iou = mask_iou(masks)
+    use_mask = [None] * N
+    for i in range(N):
+        if use_mask[i] is not None:
+            continue
+        use_mask[i] = i
+        for j in range(N):
+            if iou[i, j] > iou_thresh:
+                if use_mask[j] is None:
+                    use_mask[j] = i
+    return use_mask
+
+
 def convert_mask_SAM(masks, eps=1e-3, edge=256):
     masks = np.clip(masks, eps, 1 - eps)
     masks = np.log(masks / (1 - masks))     # inverse sigmoid
