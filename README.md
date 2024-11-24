@@ -29,7 +29,7 @@ pip install -e ".[train]"
 pip install flash-attn --no-build-isolation
 
 # install diffusion model dependencies
-pip install diffusers[torch]==0.15.0
+pip install diffusers[torch]==0.15.0 huggingface_hub==0.24.7
 
 # install SAM dependencies
 pip install git+https://github.com/facebookresearch/segment-anything.git
