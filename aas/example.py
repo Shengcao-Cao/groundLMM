@@ -86,7 +86,8 @@ if __name__ == '__main__':
         image_paths = [args.image_path]
         output_paths = [args.output_path]
 
-    os.makedirs(os.path.dirname(output_paths[0]), exist_ok=True)
+    if os.path.dirname(output_paths[0]):
+        os.makedirs(os.path.dirname(output_paths[0]), exist_ok=True)
 
     for image_path, output_path in zip(image_paths, output_paths):
         # process image and question

@@ -34,8 +34,10 @@ if __name__ == '__main__':
     for annotation in dt:
         image_id_to_dt[annotation['image_id']].append(annotation)
 
-    total = 0
-    correct = 0
+    point_total = 0
+    point_correct = 0
+    object_total = 0
+    object_correct = 0
     for image_id in image_id_to_gt:
         image = image_id_to_image[image_id]
         image_width = image['width']
@@ -47,16 +49,26 @@ if __name__ == '__main__':
             category_id = annotation['category_id']
             mask = decode_segm(annotation['segmentation'], image_height, image_width)
             if category_id not in category_id_to_mask_gt:
-                category_id_to_mask_gt[category_id] = mask
-            else:
-                category_id_to_mask_gt[category_id] |= mask
+                category_id_to_mask_gt[category_id] = []
+            category_id_to_mask_gt[category_id].append([mask, False])
+            object_total += 1
         for annotation in dt_anns:
             category_id = annotation['category_id']
-            gt_mask = category_id_to_mask_gt[category_id]
+            gt_masks = category_id_to_mask_gt[category_id]
             point_x, point_y = annotation['point']
-            if gt_mask[point_y, point_x]:
-                correct += 1
-            total += 1
+            point_matched = False
+            for mask_index in range(len(gt_masks)):
+                gt_mask, object_matched = gt_masks[mask_index]
+                if gt_mask[point_y, point_x]:
+                    point_matched = True
+                    if not object_matched:
+                        gt_masks[mask_index][1] = True
+                        object_correct += 1
+            if point_matched:
+                point_correct += 1
+            point_total += 1
 
-    pacc = correct / total * 100.0
-    print('Point accuracy: {:.2f}%'.format(pacc))
+    prec = point_correct / point_total * 100.0
+    print('Point precision: {:.2f}%'.format(prec))
+    recall = object_correct / object_total * 100.0
+    print('Object recall: {:.2f}%'.format(recall))

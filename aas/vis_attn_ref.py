@@ -4,7 +4,7 @@ import os
 
 import torch
 import matplotlib.pyplot as plt
-from PIL import Image
+from PIL import Image, ImageDraw
 from transformers import AutoTokenizer
 
 if __name__ == '__main__':
@@ -29,9 +29,10 @@ if __name__ == '__main__':
     for output_file in output_files:
         output_path = os.path.join(args.output_folder, output_file)
         save = torch.load(output_path)
-        image_path = os.path.join(args.image_folder, output_file.replace('.pth', '.jpg'))
+        image_path = os.path.join(args.image_folder, save['image_file'])
         image = Image.open(image_path).convert('RGB')
         image.save(os.path.join(args.vis_folder, output_file.replace('.pth', '_original.jpg')))
+        image_width, image_height = image.size
 
         sequences = save['sequences']
         sequences = sequences[args.offset:]
@@ -55,4 +56,30 @@ if __name__ == '__main__':
 
         plt.tight_layout()
         plt.savefig(os.path.join(args.vis_folder, output_file.replace('.pth', '.png')))
+        plt.close()
+
+        N = min(sequences.shape[0], attentions.shape[0])
+        W = args.maps_per_row
+        H = (N + W - 1) // W
+        plt.figure(figsize=(W * 2, H * 2))
+
+        for i in range(N):
+            token = tokenizer.decode(sequences[i], skip_special_tokens=False)
+            attn = attentions[i].unsqueeze(0).unsqueeze(0)
+            image_size = max(image_width, image_height)
+            attn = torch.nn.functional.interpolate(attn, (image_size, image_size), mode='bicubic', align_corners=False)
+            attn = attn[0, 0, (image_size - image_height) // 2:(image_size + image_height) // 2, (image_size - image_width) // 2:(image_size + image_width) // 2]
+            max_indices = torch.argmax(attn.reshape(-1))
+            x = max_indices % image_width
+            y = max_indices // image_width
+            image_vis = image.copy()
+            draw = ImageDraw.Draw(image_vis)
+            draw.ellipse((x - 10, y - 10, x + 10, y + 10), fill='red')
+            plt.subplot(H, W, i + 1)
+            plt.imshow(image_vis)
+            plt.axis('off')
+            plt.title(token, fontsize=8)
+
+        plt.tight_layout()
+        plt.savefig(os.path.join(args.vis_folder, output_file.replace('.pth', '_point.png')))
         plt.close()
