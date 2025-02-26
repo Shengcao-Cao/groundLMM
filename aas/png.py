@@ -1,16 +1,12 @@
 import argparse
-import cv2
 import json
 import os
 import tqdm
 
 import numpy as np
 import torch
-import spacy
 
 from PIL import Image
-from transformers import AutoTokenizer
-from segment_anything import sam_model_registry, SamPredictor
 
 from utils import encode_segm, decode_segm
 
@@ -66,13 +62,10 @@ if __name__ == '__main__':
     parser.add_argument('--png-anno', type=str)
     parser.add_argument('--panoptic-pred-folder', type=str)
     parser.add_argument('--image-folder', type=str)
-    parser.add_argument('--tokenizer', type=str, default='lmsys/vicuna-7b-v1.5')
     parser.add_argument('--aspect-ratio', type=str, default='pad')
+    parser.add_argument('--group-aggregation', type=str, default='first')
     parser.add_argument('--visualize', action='store_true')
     args = parser.parse_args()
-
-    # load models
-    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
 
     # load png annotations
     with open(args.panoptic_anno, 'r') as f:
@@ -158,14 +151,20 @@ if __name__ == '__main__':
                 segment['isthing'] = isthing
 
                 assert gt_mask.sum() > 0
+
+                if args.group_aggregation == 'max':
+                    group_attention = attentions[token_groups[segment_index]].amax(dim=0)
+                elif args.group_aggregation == 'mean':
+                    group_attention = attentions[token_groups[segment_index]].mean(dim=0)
+                elif args.group_aggregation == 'first':
+                    group_attention = attentions[token_groups[segment_index]][0]
                 group = {
                     'phrase': utterance,
                     'tokens': group_tokens,
                     'isplural': isplural,
                     'isthing': isthing,
                     'gt_mask': gt_mask,
-                    # 'attention': attentions[token_groups[segment_index]].amax(dim=0),
-                    'attention': attentions[token_groups[segment_index]][0],
+                    'attention': group_attention,
                 }
                 groups.append(group)
                 segment['gt_mask'] = gt_mask

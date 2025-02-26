@@ -1,5 +1,4 @@
 import argparse
-import cv2
 import json
 import os
 import tqdm
@@ -12,7 +11,7 @@ from PIL import Image
 from transformers import AutoTokenizer
 from segment_anything import sam_model_registry, SamPredictor
 
-from utils import split_list, get_chunk, group_tokens, encode_segm, decode_segm
+from utils import get_chunk, group_tokens, encode_segm, decode_segm
 
 
 if __name__ == '__main__':
@@ -26,7 +25,7 @@ if __name__ == '__main__':
     parser.add_argument('--sam-ckpt', type=str, default='sam_vit_h_4b8939.pth')
     parser.add_argument('--offset', type=int, default=1)
     parser.add_argument('--aspect-ratio', type=str, default='pad')
-    parser.add_argument('--remove-corner', action='store_true')
+    parser.add_argument('--group-aggregation', type=str, default='first')
     parser.add_argument('--num-chunks', type=int, default=1)
     parser.add_argument('--chunk-idx', type=int, default=0)
     parser.add_argument('--visualize', action='store_true')
@@ -67,7 +66,12 @@ if __name__ == '__main__':
         groups = group_tokens(tokens, tokenizer, spacy_model)
         for group in groups:
             attns = attentions[group['tokens']]
-            attn = attns.mean(dim=0)
+            if args.group_aggregation == 'max':
+                attn = attns.amax(dim=0)
+            elif args.group_aggregation == 'mean':
+                attn = attns.mean(dim=0)
+            elif args.group_aggregation == 'first':
+                attn = attns[0]
             group['attention'] = attn
 
         if len(groups) == 0:
@@ -76,12 +80,6 @@ if __name__ == '__main__':
         # create segmentation masks
         group_scores = [group['attention'] for group in groups]
         group_scores = torch.stack(group_scores)
-        if args.remove_corner:
-            min_value = group_scores.min()
-            group_scores[:, 0, 0] = min_value
-            group_scores[:, 0, -1] = min_value
-            group_scores[:, -1, 0] = min_value
-            group_scores[:, -1, -1] = min_value
 
         if args.aspect_ratio == 'pad':
             upsample_size = max(image_height, image_width)
