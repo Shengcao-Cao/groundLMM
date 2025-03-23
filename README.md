@@ -176,10 +176,10 @@ See a complete example in `aas/gcg.sh`.
 #### Referring Expression Segmentation and Panoptic Narrative Grounding
 Similar to GCG, we first generate attention maps and then produce corresponding segmentation results using scripts `aas/infer_attn_res.py` + `aas/res.py` or `aas/infer_attn_png.py` + `aas/png.py`. Please see examples in `aas/res.sh` and `aas/png.sh`.
 
-To prepare for the RES data, please see the instructions from GLaMM: https://github.com/mbzuai-oryx/groundingLMM/blob/main/docs/datasets.md#3-referring-expression-datasets. For PNG data, check https://github.com/BCV-Uniandes/PNG?tab=readme-ov-file#dataset-preparation. In addition, we need these preprocessed files (can be downloaded [here](https://drive.google.com/file/d/1gUrUoMBTw9b2Kwp5FJtF6DpqceaJ7Xcl/view?usp=sharing)) for mask generation:
+To prepare for the RES data, please see the [instructions from GLaMM](https://github.com/mbzuai-oryx/groundingLMM/blob/main/docs/datasets.md#3-referring-expression-datasets). For PNG data, check the [original instructions](https://github.com/BCV-Uniandes/PNG?tab=readme-ov-file#dataset-preparation). In addition, we need these preprocessed files (which can be downloaded [here](https://drive.google.com/file/d/1gUrUoMBTw9b2Kwp5FJtF6DpqceaJ7Xcl/view?usp=sharing)) for mask generation:
 - `data/res/instances_refcoco_valtest.json`: Images and annotations of RES validation and test sets.
-- `data/res/co_detr_retrain_inference_results.pkl`: Co-DETR (retrained to avoid data contamination) inference results on RES validation and test images. We only use the segmentation masks without class predictions.
-- `data/png/openseed_inference_results`: OpenSeeD inference results on PNG validation images. We only use the segmentation masks without class predictions.
+- `data/res/co_detr_retrain_inference_results.pkl`: [Co-DETR](https://github.com/Sense-X/Co-DETR) (we retrained it to avoid RES val/test images) inference results on RES validation and test images. We only use the segmentation masks without class predictions.
+- `data/png/openseed_inference_results`: [OpenSeeD](https://github.com/IDEA-Research/OpenSeeD) inference results on PNG validation images. We only use the segmentation masks without class predictions.
 
 ## 🙏 Acknowledgements
 Our work is greatly inspired by the following repositories:
