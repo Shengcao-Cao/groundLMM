@@ -25,14 +25,14 @@ if __name__ == '__main__':
     parser.add_argument('--sam-ckpt', type=str, default='sam_vit_h_4b8939.pth')
     parser.add_argument('--offset', type=int, default=1)
     parser.add_argument('--aspect-ratio', type=str, default='pad')
-    parser.add_argument('--group-aggregation', type=str, default='first')
+    parser.add_argument('--group-aggregation', type=str, default='max')
     parser.add_argument('--num-chunks', type=int, default=1)
     parser.add_argument('--chunk-idx', type=int, default=0)
     parser.add_argument('--visualize', action='store_true')
     args = parser.parse_args()
 
     # load models
-    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
+    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, trust_remote_code=True)
     spacy_model = spacy.load('en_core_web_lg')
     sam_model = sam_model_registry[args.sam_model](checkpoint=args.sam_ckpt).cuda()
     sam_predictor = SamPredictor(sam_model)

@@ -24,7 +24,7 @@ if __name__ == '__main__':
     if args.samples > 0:
         output_files = output_files[:args.samples]
 
-    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
+    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, trust_remote_code=True)
 
     os.makedirs(args.vis_folder, exist_ok=True)
 

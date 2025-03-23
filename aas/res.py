@@ -5,15 +5,10 @@ import pickle
 
 import numpy as np
 import torch
-import spacy
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor
 from pycocotools import mask as mask_utils
 from tqdm import tqdm
 from transformers import AutoTokenizer
-
-
-def cosine_similarity(a, b):
-    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-8)
 
 
 def parallel_apply(func, inputs, workers=16):
@@ -32,8 +27,7 @@ if __name__ == '__main__':
     parser.add_argument('--aspect-ratio', type=str, default='pad')
     args = parser.parse_args()
 
-    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
-    spacy_model = spacy.load('en_core_web_lg')
+    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, trust_remote_code=True)
 
     segm = pickle.load(open(args.segmentation, 'rb'))
     anno = json.load(open(args.res_anno))
@@ -64,19 +58,9 @@ if __name__ == '__main__':
         attn_mean = attentions.mean(dim=0)
         attentions = attentions - attn_mean
 
-        # phrase = save['sent']
-        # # phrase_embedding = spacy_model(phrase).vector
-        # for phrase_part in spacy_model(phrase):
-        #     if phrase_part.dep_ == 'ROOT':
-        #         phrase_embedding = phrase_part.vector
-        #         break
-
-        # sequence = save['sequences'][args.offset:]
-        # sequence = [tokenizer.decode(token) for token in sequence]
-        # token_embeddings = [spacy_model(token).vector for token in sequence]
-
-        # similarities = np.array([cosine_similarity(phrase_embedding, token_embedding) for token_embedding in token_embeddings])
-        # similarities = np.maximum(similarities, 0.0)
+        answer = save['answer']
+        sequence = save['sequences'][args.offset:]
+        sequence = [tokenizer.decode(token) for token in sequence]
 
         if args.aspect_ratio == 'pad':
             upsample_size = max(image_height, image_width)
@@ -95,23 +79,32 @@ if __name__ == '__main__':
         else:
             raise NotImplementedError(f'Invalid aspect ratio: {args.aspect_ratio}')
 
-        # upsample_scores = upsample_scores * similarities.reshape(-1, 1, 1)
-        upsample_scores = upsample_scores[:8].amax(dim=0)
-
-        H, W = upsample_scores.shape
-        max_indices = torch.argmax(upsample_scores.reshape(-1))
-        y = max_indices // W
-        x = max_indices % W
+        N, H, W = upsample_scores.shape
+        max_indices = torch.argmax(upsample_scores.reshape(N, -1), dim=1)
+        h_coords = max_indices // W
+        w_coords = max_indices % W
+        point_coords_np = torch.stack([w_coords, h_coords], dim=1).numpy()
 
         pred_masks = image_id_to_masks[image_id]
+        selected_masks = []
+        for x, y in point_coords_np:
+            selected_mask = None
+            for pred_mask_index, pred_mask in enumerate(pred_masks):
+                if pred_mask[y, x]:
+                    selected_mask = pred_mask_index
+                    break
+            selected_masks.append(selected_mask)
+
+        # token after the first `is` or `are` or `be`
         selected_mask = None
-        for pred_mask in pred_masks:
-            if pred_mask[y, x]:
-                selected_mask = pred_mask
+        for i in range(1, len(sequence)):
+            if sequence[i - 1].lower().strip() in ['is', 'are', 'be']:
+                selected_mask = selected_masks[i]
                 break
+
         if selected_mask is not None:
-            intersection = (gt_mask & selected_mask).sum()
-            union = (gt_mask | selected_mask).sum()
+            intersection = (gt_mask & pred_masks[selected_mask]).sum()
+            union = (gt_mask | pred_masks[selected_mask]).sum()
             iou = intersection / union
         else:
             iou = 0.0

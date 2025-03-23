@@ -63,7 +63,7 @@ if __name__ == '__main__':
     parser.add_argument('--panoptic-pred-folder', type=str)
     parser.add_argument('--image-folder', type=str)
     parser.add_argument('--aspect-ratio', type=str, default='pad')
-    parser.add_argument('--group-aggregation', type=str, default='first')
+    parser.add_argument('--group-aggregation', type=str, default='max')
     parser.add_argument('--visualize', action='store_true')
     args = parser.parse_args()
 

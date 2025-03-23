@@ -260,7 +260,7 @@ def main():
     coco_eval.summarize()
 
     # # -------------------------------#
-    # # 2. Evaluate Caption Quality
+    # 2. Evaluate Caption Quality
     coco_cap_gt = COCO(gt_cap_path)
     coco_cap_result = coco_cap_gt.loadRes(cap_pred_save_path)
     # create coco_eval object by taking coco and coco_result
