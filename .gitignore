@@ -37,6 +37,7 @@ serve_images/
 /jobs
 /logs
 /save*
+/data*
 /ngc*/
 /venv*/
 /checkpoints/

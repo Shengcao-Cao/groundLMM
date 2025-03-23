@@ -142,35 +142,16 @@ CUDA_VISIBLE_DEVICES=$GPU python aas/infer_attn.py \
 done
 ```
 
-For newer models, you may revise `aas/infer_attn.py` to generate corresponding attention maps. We provide two examples:
-- For [Cambrian-1-8B](https://huggingface.co/nyu-visionx/cambrian-8b): `aas/more_models/cambrian.py`
-- For [LLaVA-NeXT-8B](https://huggingface.co/lmms-lab/llama3-llava-next-8b): `aas/more_models/llava_next.py`
+For newer models, you may revise `aas/infer_attn.py` to generate corresponding attention maps. We provide the following examples in `aas/more_models`:
+- [Cambrian-1](https://huggingface.co/nyu-visionx/cambrian-8b)
+- [LLaVA-NeXT](https://huggingface.co/lmms-lab/llama3-llava-next-8b)
+- [InternVL-2.5](https://huggingface.co/OpenGVLab/InternVL2_5-8B)
+- [Qwen2.5-VL](https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct)
 
 You may then use `aas/vis_attn.py` to visualize and verify the generated attention maps.
 
-#### Instance Segmentation
-After generating the attention maps based on [COCO](https://cocodataset.org/#download) validation images, we further produce the segmentation results:
-```
-CUDA_VISIBLE_DEVICES=0 python aas/instance_seg.py \
-    --input-folder /path/to/results/instance_seg_attn/difflmm \
-    --output-folder /path/to/results/instance_seg/difflmm \
-    --ref-anno /path/to/coco/annotations/instances_val2017.json \
-    --image-folder /path/to/coco/val2017 \
-    --tokenizer lmsys/vicuna-7b-v1.5 \
-    --sam-ckpt checkpoints/sam_vit_h_4b8939.pth \
-    --more-masks \
-    --category-thresh 0.5
-```
-
-The results are evaluated as:
-```
-python aas/eval_instance_seg.py \
-    --gt /path/to/coco/annotations/instances_val2017.json \
-    --dt /path/to/results/instance_seg/difflmm.json
-```
-
 #### Grounded Conversation Generation
-Similarly, after generating the attention maps from [GranD-f](https://github.com/mbzuai-oryx/groundingLMM/blob/main/docs/datasets.md#1-grand-f-grounded-conversation-generation-gcg-dataset) images, we produce the segmentation results:
+After generating the attention maps from [GranD-f](https://github.com/mbzuai-oryx/groundingLMM/blob/main/docs/datasets.md#1-grand-f-grounded-conversation-generation-gcg-dataset) images, we produce the segmentation results:
 ```
 CUDA_VISIBLE_DEVICES=0 python aas/gcg.py \
     --input-folder /path/to/results/gcg_attn/difflmm \
@@ -189,6 +170,16 @@ CUDA_VISIBLE_DEVICES=0 python aas/eval_gcg.py \
     --gt-mask /path/to/GranDf/annotations/val_test/val_gcg_coco_mask_gt.json \
     --split val
 ```
+
+See a complete example in `aas/gcg.sh`.
+
+#### Referring Expression Segmentation and Panoptic Narrative Grounding
+Similar to GCG, we first generate attention maps and then produce corresponding segmentation results using scripts `aas/infer_attn_res.py` + `aas/res.py` or `aas/infer_attn_png.py` + `aas/png.py`. Please see examples in `aas/res.sh` and `aas/png.sh`.
+
+To prepare for the RES data, please see the instructions from GLaMM: https://github.com/mbzuai-oryx/groundingLMM/blob/main/docs/datasets.md#3-referring-expression-datasets. For PNG data, check https://github.com/BCV-Uniandes/PNG?tab=readme-ov-file#dataset-preparation. In addition, we need these preprocessed files (can be downloaded [here](https://drive.google.com/file/d/1gUrUoMBTw9b2Kwp5FJtF6DpqceaJ7Xcl/view?usp=sharing)) for mask generation:
+- `data/res/instances_refcoco_valtest.json`: Images and annotations of RES validation and test sets.
+- `data/res/co_detr_retrain_inference_results.pkl`: Co-DETR (retrained to avoid data contamination) inference results on RES validation and test images. We only use the segmentation masks without class predictions.
+- `data/png/openseed_inference_results`: OpenSeeD inference results on PNG validation images. We only use the segmentation masks without class predictions.
 
 ## 🙏 Acknowledgements
 Our work is greatly inspired by the following repositories:
