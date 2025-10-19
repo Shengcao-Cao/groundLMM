@@ -1,10 +1,10 @@
-# Emerging Pixel Grounding in Large Multimodal Models Without Grounding Supervision
+# Emergent Visual Grounding in Large Multimodal Models Without Grounding Supervision
 
 This is the official PyTorch implementation of our paper:
 
-**Emerging Pixel Grounding in Large Multimodal Models Without Grounding Supervision**
+**Emergent Visual Grounding in Large Multimodal Models Without Grounding Supervision**
 
-[[Project Page]](https://groundlmm.github.io/) [[Paper]](https://arxiv.org/abs/2410.08209)
+[[Project Page]](https://groundlmm-iccv.github.io/) [[Paper]](https://arxiv.org/abs/2410.08209)
 
 [Shengcao Cao](https://shengcao-cao.github.io/), [Liang-Yan Gui](https://lgui.web.illinois.edu/), [Yu-Xiong Wang](https://yxw.web.illinois.edu/)
 
@@ -197,10 +197,10 @@ This project is released under the Apache 2.0 license. Other codes from open sou
 ## 🌟 Citation
 If you find our research interesting or use our code, model, or method in your research, please consider citing our work.
 ```
-@article{cao2024emerging,
-  title={Emerging Pixel Grounding in Large Multimodal Models Without Grounding Supervision},
+@inproceedings{cao2025emergent,
+  title={Emergent Visual Grounding in Large Multimodal Models Without Grounding Supervision},
   author={Cao, Shengcao and Gui, Liang-Yan and Wang, Yu-Xiong},
-  journal={arXiv preprint arXiv:2410.08209},
-  year={2024}
+  booktitle={ICCV Findings},
+  year={2025}
 }
 ```
